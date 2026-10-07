@@ -1,0 +1,18 @@
+{
+  "name": "suwa-kanda",
+  "version": "1.0.0",
+  "description": "Suwa Kanda (සුව කැඳ) - Herbal Congee POS & Kitchen Operations System in Thanamalwila",
+  "private": true,
+  "scripts": {
+    "start": "node server/src/index.js",
+    "build": "npm run build --prefix client && npm --prefix server install --omit=dev",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,green\" \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "db:seed": "npm run db:seed --prefix server",
+    "build:client": "npm run build --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
