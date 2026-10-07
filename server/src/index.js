@@ -42,6 +42,11 @@ io.on('connection', (socket) => {
     });
 });
 
+// Render Health Check endpoint
+app.get('/healthz', (req, res) => {
+    res.status(200).send('OK');
+});
+
 // System Health & Diagnostics endpoint
 app.get('/api/health', async (req, res) => {
     try {
