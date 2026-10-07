@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Component } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SocketProvider } from './context/SocketContext';
 import Navbar from './components/Navbar';
@@ -8,9 +8,47 @@ import ExpensesPage from './pages/ExpensesPage';
 import ReportsPage from './pages/ReportsPage';
 import SetupPage from './pages/SetupPage';
 
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('App ErrorBoundary caught:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 max-w-md w-full shadow-2xl">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center text-3xl mb-4">
+              ⚠️
+            </div>
+            <h2 className="text-xl font-bold mb-2">පද්ධතියේ දෝෂයක් (System Notice)</h2>
+            <p className="text-xs text-slate-400 mb-6 font-mono text-left bg-slate-950 p-3 rounded-xl border border-slate-800 overflow-auto max-h-32">
+              {this.state.error?.message || 'Unexpected application error'}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all"
+            >
+              නැවත පූරණය කරන්න (Reload App)
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <SocketProvider>
+    <ErrorBoundary>
+      <SocketProvider>
       <BrowserRouter>
         <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white relative overflow-x-hidden">
           {/* Authentic Atmospheric Background Image for Suwa Kanda Herbal Congee */}
@@ -44,5 +82,6 @@ export default function App() {
         </div>
       </BrowserRouter>
     </SocketProvider>
+    </ErrorBoundary>
   );
 }

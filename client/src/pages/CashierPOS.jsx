@@ -25,6 +25,7 @@ import {
   HeartPulse,
   LayoutGrid,
   Coins,
+  Receipt,
   Check
 } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
