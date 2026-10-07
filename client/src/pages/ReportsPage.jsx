@@ -14,7 +14,12 @@ import {
   TrendingDown,
   Sparkles,
   Award,
-  FileSpreadsheet
+  FileSpreadsheet,
+  CheckCircle2,
+  PieChart,
+  ArrowUpRight,
+  ShieldCheck,
+  Percent
 } from 'lucide-react';
 import { exportFinancialSummaryToExcel } from '../utils/exportExcel';
 
@@ -45,74 +50,79 @@ export default function ReportsPage() {
     fetchReport();
   }, [selectedDate, selectedMonth]);
 
-  // Handle view toggle
   const isDaily = viewMode === 'daily';
 
-  // Current view metrics
-  const revenue = isDaily ? (report?.daily?.revenue || 0) : (report?.monthly?.revenue || 0);
-  const ordersCount = isDaily ? (report?.daily?.orders_count || 0) : (report?.monthly?.orders_count || 0);
-  const expenses = isDaily ? (report?.daily?.expenses || 0) : (report?.monthly?.expenses || 0);
-  const expensesCount = isDaily ? (report?.daily?.expenses_count || 0) : (report?.monthly?.expenses_count || 0);
-  const netProfit = isDaily ? (report?.daily?.net_profit || 0) : (report?.monthly?.net_profit || 0);
-  
-  const paymentBreakdown = isDaily 
-    ? (report?.daily?.payment_breakdown || []) 
-    : (report?.monthly?.payment_breakdown || []);
+  // Current metrics
+  const metrics = isDaily ? report?.daily : report?.monthly;
+  const revenue = Number(metrics?.revenue || 0);
+  const expenses = Number(metrics?.expenses || 0);
+  const netProfit = Number(metrics?.net_profit || (revenue - expenses));
+  const profitMargin = revenue > 0 ? ((netProfit / revenue) * 100).toFixed(1) : '0.0';
+  const ordersCount = metrics?.orders_count || 0;
+  const expensesCount = metrics?.expenses_count || 0;
 
-  const cashTotal = paymentBreakdown.find(p => p.payment_method === 'cash')?.total || 0;
-  const qrTotal = paymentBreakdown.find(p => p.payment_method === 'qr')?.total || 0;
-  const cardTotal = paymentBreakdown.find(p => p.payment_method === 'card')?.total || 0;
+  // Payment Breakdown
+  const paymentBreakdown = metrics?.payment_breakdown || [];
+  const cashTotal = Number(paymentBreakdown.find(p => p.payment_method === 'cash')?.total || 0);
+  const qrTotal = Number(paymentBreakdown.find(p => p.payment_method === 'qr')?.total || 0);
+  const cardTotal = Number(paymentBreakdown.find(p => p.payment_method === 'card')?.total || 0);
 
-  // Max value for visual bar chart scaling
+  // Partners & Congee list
+  const partners = report?.partner_profit_split?.partners || [];
+  const itemSales = (isDaily ? report?.item_sales : (report?.monthly_item_sales || report?.item_sales)) || [];
   const trends = report?.daily_trends || [];
-  const maxTrendVal = Math.max(
-    ...trends.map(t => Math.max(t.revenue || 0, t.expenses || 0)),
-    1000
-  );
+  const expenseCategories = metrics?.expense_categories || [];
 
   return (
-    <div className="flex-1 flex flex-col gap-6 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+    <div className="flex-1 flex flex-col gap-6 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-6 pb-24 md:pb-10">
       
-      {/* Top Header & View Mode Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* 1. Header & Controls */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl backdrop-blur-md">
         <div>
-          <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
-            Reports & Partner Profit Sharing
-          </h2>
-          <p className="text-xs text-slate-400">
-            Real-time financial analytics, Cash vs QR breakdowns, and automated 3-way partner dividend splits
-          </p>
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center">
+              <BarChart3 className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
+                ව්‍යාපාරික විශ්ලේෂණය <span className="text-emerald-400 text-sm font-semibold hidden sm:inline">(Business Analytics & Profit Share)</span>
+              </h1>
+              <p className="text-xs text-slate-400">
+                තණමල්විල සුව කැඳ • දෛනික හා මාසික ආදායම්, වියදම් සහ පාර්ශවකරුවන්ගේ ලාභ බෙදීම
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          
+        {/* View Mode Filters & Excel Button */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* Daily vs Monthly Toggle */}
-          <div className="p-1 bg-slate-900 border border-slate-800 rounded-2xl flex items-center">
+          <div className="p-1 bg-slate-800/90 border border-slate-700/80 rounded-2xl flex items-center">
             <button
               onClick={() => setViewMode('daily')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 isDaily 
                   ? 'bg-emerald-600 text-white shadow-md' 
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Daily View (දෛනික)
+              දෛනික (Daily)
             </button>
             <button
               onClick={() => setViewMode('monthly')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 !isDaily 
                   ? 'bg-emerald-600 text-white shadow-md' 
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Monthly View (මාසික)
+              මාසික (Monthly)
             </button>
           </div>
 
-          {/* Date / Month Picker */}
+          {/* Date Picker */}
           {isDaily ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-800 border border-slate-700 text-xs text-slate-300">
               <Calendar className="w-4 h-4 text-emerald-400" />
               <input
                 type="date"
@@ -125,7 +135,7 @@ export default function ReportsPage() {
               />
             </div>
           ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-800 border border-slate-700 text-xs text-slate-300">
               <Calendar className="w-4 h-4 text-emerald-400" />
               <input
                 type="month"
@@ -136,14 +146,15 @@ export default function ReportsPage() {
             </div>
           )}
 
+          {/* Export to Excel (.xlsx) Button */}
           <button
             onClick={() => exportFinancialSummaryToExcel(report, viewMode, isDaily ? selectedDate : selectedMonth)}
             disabled={!report}
-            className="px-3.5 py-2 rounded-2xl bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-md active:scale-95 disabled:opacity-40 cursor-pointer"
-            title="Download report as Microsoft Excel sheet"
+            className="px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-950/70 active:scale-95 disabled:opacity-40 cursor-pointer"
+            title="Download multi-sheet Microsoft Excel (.xlsx) workbook"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
-            <span>Export Excel (බාගත කරන්න)</span>
+            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+            <span>Excel වාර්තාව බාගත කරන්න (.xlsx)</span>
           </button>
 
           <button
@@ -159,118 +170,117 @@ export default function ReportsPage() {
       {report && (
         <div className="flex flex-col gap-6">
           
-          {/* 1. Metric Cards: Revenue (Cash vs QR), Expenses, Net Profit */}
+          {/* 2. Hero KPI Cards: Revenue, Cost/Expenses, Net Profit */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
-            {/* Revenue Card (with Cash vs QR breakdown) */}
+            {/* Card 1: Gross Revenue */}
             <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                    {isDaily ? `Daily Revenue (${selectedDate})` : `Monthly Revenue (${selectedMonth})`}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase font-extrabold text-slate-400 tracking-wider">
+                    {isDaily ? `දෛනික ආදායම (Daily Revenue)` : `මාසික ආදායම (Monthly Revenue)`}
                   </span>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {ordersCount} orders
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                    {ordersCount} බිල්පත්
                   </span>
                 </div>
-                <div className="text-3xl font-black text-white font-mono mt-1">
+                <div className="text-3xl sm:text-4xl font-black text-white font-mono mt-2 tracking-tight">
                   Rs. {revenue.toFixed(2)}
                 </div>
               </div>
 
-              {/* Cash vs QR Breakdown Badges */}
-              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
-                <div className="flex items-center gap-1.5 text-emerald-400">
-                  <Banknote className="w-4 h-4" />
-                  <span>Cash: Rs. {cashTotal.toFixed(2)}</span>
+              {/* Cash vs LankaQR mini badges */}
+              <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
+                <div className="flex items-center gap-1 text-emerald-400">
+                  <Banknote className="w-3.5 h-3.5" />
+                  <span>මුදල්: Rs. {cashTotal.toFixed(0)}</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-teal-400">
-                  <QrCode className="w-4 h-4" />
-                  <span>QR: Rs. {qrTotal.toFixed(2)}</span>
+                <div className="flex items-center gap-1 text-teal-300">
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>LankaQR: Rs. {qrTotal.toFixed(0)}</span>
                 </div>
                 {cardTotal > 0 && (
-                  <div className="flex items-center gap-1.5 text-cyan-400">
-                    <CreditCard className="w-4 h-4" />
-                    <span>Card: Rs. {cardTotal.toFixed(2)}</span>
+                  <div className="flex items-center gap-1 text-cyan-300">
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Card: Rs. {cardTotal.toFixed(0)}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Expenses Card */}
+            {/* Card 2: Total Shop Expenses */}
             <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                    {isDaily ? `Daily Expenses (${selectedDate})` : `Monthly Expenses (${selectedMonth})`}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase font-extrabold text-slate-400 tracking-wider">
+                    {isDaily ? `දෛනික වියදම් (Daily Costs)` : `මාසික වියදම් (Monthly Costs)`}
                   </span>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {expensesCount} records
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                    {expensesCount} වියදම්
                   </span>
                 </div>
-                <div className="text-3xl font-black text-rose-400 font-mono mt-1">
+                <div className="text-3xl sm:text-4xl font-black text-rose-400 font-mono mt-2 tracking-tight">
                   Rs. {expenses.toFixed(2)}
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-800/80">
-                Ingredients, firewood, wages, and utilities
+              <p className="text-xs text-slate-400 mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between">
+                <span>අමුද්‍රව්‍ය, දර, කොළ වර්ග, වැටුප්</span>
+                <span className="font-mono font-bold text-rose-400">
+                  {revenue > 0 ? `${((expenses / revenue) * 100).toFixed(0)}% of sales` : ''}
+                </span>
               </p>
             </div>
 
-            {/* Net Profit Card */}
-            <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col justify-between">
+            {/* Card 3: Net Profit in Hand */}
+            <div className="p-6 rounded-3xl bg-slate-900/90 border border-emerald-500/30 shadow-xl flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                    Net Profit (Revenue - Expenses)
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase font-extrabold text-emerald-400 tracking-wider">
+                    ශුද්ධ ලාභය (Net Profit in Pocket)
                   </span>
-                  <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                  <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full ${
                     netProfit >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
                   }`}>
-                    {netProfit >= 0 ? 'Surplus' : 'Deficit'}
+                    {profitMargin}% Margin
                   </span>
                 </div>
-                <div className={`text-3xl font-black font-mono mt-1 ${
+                <div className={`text-3xl sm:text-4xl font-black font-mono mt-2 tracking-tight ${
                   netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
                 }`}>
                   Rs. {netProfit.toFixed(2)}
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-800/80">
+              <p className="text-xs text-slate-300 mt-5 pt-3.5 border-t border-slate-800/80">
                 {netProfit >= 0 
-                  ? 'Profit distributed 100% to partners below' 
-                  : 'Negative balance; operating costs exceed revenue'
-                }
+                  ? 'ආදායමෙන් වියදම් අඩු කළ පසු 100% ක්ම හවුල්කරුවන්ට බෙදීමට ඇති ලාභය' 
+                  : 'වියදම් ආදායමට වඩා වැඩිය (පාඩුව)'}
               </p>
             </div>
 
           </div>
 
-          {/* 2. 3-Way Partner Profit Split Card */}
+          {/* 3. Section: 3-Way Partner Profit Sharing */}
           <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2">
               <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <h2 className="text-lg font-black text-white flex items-center gap-2">
                   <Users className="w-5 h-5 text-emerald-400" />
-                  3-Way Partner Profit Split
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">
-                    {isDaily ? 'Daily Payout' : 'Monthly Payout'}
-                  </span>
-                </h3>
+                  පාර්ශවකරුවන් 3 දෙනාගේ ලාභ බෙදීම (3-Way Partner Dividend Share)
+                </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Exact rupee payout calculated automatically from Net Profit (Rs. {netProfit.toFixed(2)}) based on partnership percentage shares
+                  සමීකරණය: ශුද්ධ ලාභය (Rs. {netProfit.toFixed(2)}) × කොටස් ප්‍රතිශතය % = එක් එක් පාර්ශවකරුට ලැබෙන මුදල
                 </p>
               </div>
 
-              <span className="text-xs font-mono font-bold text-slate-300 px-3 py-1 rounded-xl bg-slate-800">
-                Basis: Net Profit (100% Allocated)
+              <span className="text-xs font-mono font-bold text-emerald-300 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
+                100% ලාභය බෙදාහැරීම
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
-              {report.partner_profit_split.partners.map((partner) => {
-                // Compute exact rupee payout for selected view (Daily vs Monthly)
-                const shareRatio = partner.share_percentage / 100;
+              {partners.map((partner) => {
+                const shareRatio = (partner.share_percentage || 0) / 100;
                 const rupeePayout = netProfit > 0 
                   ? Math.round(netProfit * shareRatio * 100) / 100 
                   : 0;
@@ -278,33 +288,33 @@ export default function ReportsPage() {
                 return (
                   <div 
                     key={partner.id}
-                    className="p-5 rounded-2xl bg-slate-850/90 border border-slate-800 flex flex-col justify-between"
+                    className="p-5 rounded-2xl bg-slate-850/90 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between"
                   >
                     <div>
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="font-bold text-base text-white block">{partner.name}</span>
-                          <span className="text-[11px] text-slate-400">Stakeholder ID #{partner.id}</span>
+                          <span className="font-extrabold text-base text-white block">{partner.name}</span>
+                          <span className="text-[11px] text-slate-400">හවුල්කරු #{partner.id}</span>
                         </div>
-                        <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <span className="text-xs font-mono font-black px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                           {partner.share_percentage}%
                         </span>
                       </div>
 
                       {/* Prominent Exact Rupee Payout */}
-                      <div className="mt-4 p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                      <div className="mt-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                          {isDaily ? 'Daily Payout Share' : 'Monthly Payout Share'}
+                          ලැබිය යුතු ලාභ කොටස (Payout Due)
                         </span>
-                        <div className="text-2xl font-black text-emerald-400 font-mono mt-0.5">
+                        <div className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-0.5">
                           Rs. {rupeePayout.toFixed(2)}
                         </div>
                       </div>
 
                       <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                        <span>Equation:</span>
-                        <span className="font-mono">
-                          {netProfit > 0 ? `Rs. ${netProfit.toFixed(2)} × ${partner.share_percentage}%` : 'No profit to split'}
+                        <span>ගණනය:</span>
+                        <span className="font-mono text-slate-300">
+                          {netProfit > 0 ? `Rs. ${netProfit.toFixed(0)} × ${partner.share_percentage}%` : 'රු. 0.00'}
                         </span>
                       </div>
                     </div>
@@ -321,142 +331,201 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* 3. Bar Chart: Daily Sales vs Daily Expenses Visual Breakdown */}
+          {/* 4. Section: Congee Varieties Sales & Pricing Table */}
           <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-4">
               <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-teal-400" />
-                  Daily Sales vs Daily Expenses Trend ({selectedMonth})
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Visual day-by-day comparison of gross congee sales against operational expenditures
+                <h2 className="text-lg font-black text-white flex items-center gap-2">
+                  <Soup className="w-5 h-5 text-emerald-400" />
+                  කැඳ වර්ග අලෙවිය සහ මිල ගණන් විග්‍රහය (Congee Sales & Pricing)
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  එක් එක් කැඳ වර්ගයේ මිල, අලෙවි වූ කෝප්ප ගණන සහ උපයාගත් ආදායම
+                </p>
+              </div>
+              <span className="text-xs font-mono font-bold text-slate-400">
+                කාලසීමාව: {dateOrMonth}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-extrabold text-[11px]">
+                    <th className="py-3 px-3">#</th>
+                    <th className="py-3 px-3">කැඳ වර්ගය (Variety)</th>
+                    <th className="py-3 px-3">අංශය (Station)</th>
+                    <th className="py-3 px-3 text-right">කෝප්පයක මිල (Price)</th>
+                    <th className="py-3 px-3 text-right">අලෙවි වූ කෝප්ප (Cups)</th>
+                    <th className="py-3 px-3 text-right">මුළු ආදායම (Revenue)</th>
+                    <th className="py-3 px-3 text-right">ප්‍රතිශතය (% Share)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-850">
+                  {itemSales.map((item, idx) => {
+                    const cups = Number(item.bowls_sold || 0);
+                    const itemRev = Number(item.total_sales || 0);
+                    const unitPrice = Number(item.price || (cups > 0 ? itemRev / cups : 0));
+                    const sharePct = revenue > 0 ? ((itemRev / revenue) * 100).toFixed(1) : '0';
+
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-3 font-mono font-bold text-slate-500">
+                          {idx + 1}
+                        </td>
+                        <td className="py-3.5 px-3">
+                          <span className="font-extrabold text-sm text-emerald-300 font-sinhala block">
+                            {item.sinhala_name || item.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400 block">
+                            {item.name}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3">
+                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                            {item.station_id}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 font-mono font-bold text-white text-right text-sm">
+                          Rs. {unitPrice.toFixed(2)}
+                        </td>
+                        <td className="py-3.5 px-3 font-mono font-extrabold text-amber-300 text-right text-base">
+                          {cups} <span className="text-xs font-normal text-slate-400 font-sans">කෝප්ප</span>
+                        </td>
+                        <td className="py-3.5 px-3 font-mono font-black text-emerald-400 text-right text-base">
+                          Rs. {itemRev.toFixed(2)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-16 bg-slate-800 h-2 rounded-full overflow-hidden hidden sm:block">
+                              <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${sharePct}%` }} />
+                            </div>
+                            <span className="font-mono font-bold text-xs text-slate-300">{sharePct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-700 bg-slate-900/80 font-black text-xs text-white">
+                    <td colSpan={4} className="py-4 px-3 text-left uppercase tracking-wider">
+                      මුළු එකතුව (Total Cups & Revenue)
+                    </td>
+                    <td className="py-4 px-3 text-right font-mono text-base text-amber-300">
+                      {itemSales.reduce((s, i) => s + Number(i.bowls_sold || 0), 0)} කෝප්ප
+                    </td>
+                    <td className="py-4 px-3 text-right font-mono text-lg text-emerald-400">
+                      Rs. {itemSales.reduce((s, i) => s + Number(i.total_sales || 0), 0).toFixed(2)}
+                    </td>
+                    <td className="py-4 px-3 text-right font-mono text-xs text-slate-400">
+                      100.0%
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* 5. Section: Expenses Breakdown by Category */}
+          {expenseCategories.length > 0 && (
+            <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
+              <div className="pb-4 border-b border-slate-800 mb-4">
+                <h2 className="text-lg font-black text-white flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-rose-400" />
+                  වියදම් කාණ්ඩ විග්‍රහය (Cost Breakdown by Category)
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  කඩයේ මෙහෙයුම් පිරිවැය කාණ්ඩ වශයෙන් බෙදී ඇති ආකාරය
                 </p>
               </div>
 
-              {/* Legend */}
-              <div className="flex items-center gap-4 text-xs font-semibold">
-                <div className="flex items-center gap-1.5 text-emerald-400">
-                  <div className="w-3 h-3 rounded-sm bg-emerald-500" />
-                  <span>Sales (Revenue)</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-rose-400">
-                  <div className="w-3 h-3 rounded-sm bg-rose-500" />
-                  <span>Expenses</span>
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {expenseCategories.map((cat, idx) => (
+                  <div key={idx} className="p-4 rounded-2xl bg-slate-850 border border-slate-800 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[11px] uppercase font-bold text-slate-400 block tracking-wider">
+                        {cat.category}
+                      </span>
+                      <span className="text-lg sm:text-xl font-black text-rose-400 font-mono mt-1 block">
+                        Rs. {Number(cat.total).toFixed(2)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-2 font-mono">
+                      {cat.count} වියදම් සටහන් ({expenses > 0 ? ((cat.total / expenses) * 100).toFixed(0) : 0}%)
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
+          )}
 
-            {/* Visual Bar Chart */}
-            {trends.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs">
-                No transactions recorded for month {selectedMonth}.
-              </div>
-            ) : (
-              <div className="mt-6 flex flex-col gap-4">
-                <div className="overflow-x-auto pb-2">
-                  <div className="min-w-[600px] flex items-end gap-3 h-52 pt-6 pb-2 border-b border-slate-800">
-                    {trends.map((item, idx) => {
-                      const salesHeight = Math.max(4, Math.round((item.revenue / maxTrendVal) * 160));
-                      const expHeight = Math.max(4, Math.round((item.expenses / maxTrendVal) * 160));
-                      const dayLabel = item.date.slice(8); // '07'
-
-                      return (
-                        <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
-                          
-                          {/* Tooltip on Hover */}
-                          <div className="absolute -top-12 hidden group-hover:flex flex-col items-center bg-slate-800 border border-slate-700 text-[10px] text-white px-2 py-1 rounded shadow-xl whitespace-nowrap z-20 pointer-events-none">
-                            <span className="font-bold">{item.date}</span>
-                            <span className="text-emerald-400">Sales: Rs. {item.revenue.toFixed(2)}</span>
-                            <span className="text-rose-400">Exp: Rs. {item.expenses.toFixed(2)}</span>
-                          </div>
-
-                          {/* Bars container */}
-                          <div className="w-full flex items-end justify-center gap-1 h-44">
-                            {/* Revenue Bar */}
-                            <div 
-                              className="w-3 sm:w-5 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t transition-all group-hover:brightness-110"
-                              style={{ height: `${salesHeight}px` }}
-                              title={`Sales: Rs. ${item.revenue}`}
-                            />
-                            {/* Expenses Bar */}
-                            <div 
-                              className="w-3 sm:w-5 bg-gradient-to-t from-rose-600 to-rose-400 rounded-t transition-all group-hover:brightness-110"
-                              style={{ height: `${expHeight}px` }}
-                              title={`Expenses: Rs. ${item.expenses}`}
-                            />
-                          </div>
-
-                          {/* Day Label */}
-                          <span className="text-[11px] font-mono text-slate-400 font-bold mt-1">
-                            {dayLabel}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+          {/* 6. Section: Daily Sales vs Expenses Trend Table */}
+          {trends.length > 0 && (
+            <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
+              <div className="pb-4 border-b border-slate-800 mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-black text-white flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-teal-400" />
+                    දිනපතා ලාභ අලාභ සටහන (Daily Profit & Loss Log)
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    තෝරාගත් මාසය තුළ එක් එක් දිනයේ ආදායම, වියදම සහ ශුද්ධ ලාභය
+                  </p>
                 </div>
+              </div>
 
-                {/* Trend Summary Numbers Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
-                        <th className="py-2 px-3">Date</th>
-                        <th className="py-2 px-3">Orders</th>
-                        <th className="py-2 px-3">Daily Sales (LKR)</th>
-                        <th className="py-2 px-3">Daily Expenses (LKR)</th>
-                        <th className="py-2 px-3 text-right">Net Daily Result</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-850">
-                      {trends.map((t, idx) => (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-extrabold text-[11px]">
+                      <th className="py-2.5 px-3">දිනය (Date)</th>
+                      <th className="py-2.5 px-3">ඇණවුම් (Orders)</th>
+                      <th className="py-2.5 px-3 text-right">දෛනික ආදායම (Revenue)</th>
+                      <th className="py-2.5 px-3 text-right">දෛනික වියදම (Cost)</th>
+                      <th className="py-2.5 px-3 text-right">ශුද්ධ ලාභය (Net Profit)</th>
+                      <th className="py-2.5 px-3 text-right">තත්ත්වය (Result)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {trends.map((t, idx) => {
+                      const net = Number(t.net_profit || 0);
+                      return (
                         <tr key={idx} className="hover:bg-slate-800/30">
-                          <td className="py-2 px-3 font-mono font-bold text-slate-300">{t.date}</td>
-                          <td className="py-2 px-3 font-mono text-slate-400">{t.orders_count}</td>
-                          <td className="py-2 px-3 font-mono text-emerald-400 font-bold">
-                            Rs. {t.revenue.toFixed(2)}
+                          <td className="py-3 px-3 font-mono font-bold text-slate-300">
+                            {t.date}
                           </td>
-                          <td className="py-2 px-3 font-mono text-rose-400 font-bold">
-                            Rs. {t.expenses.toFixed(2)}
+                          <td className="py-3 px-3 font-mono text-slate-400">
+                            {t.orders_count}
                           </td>
-                          <td className={`py-2 px-3 font-mono font-bold text-right ${
-                            t.net_profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                          <td className="py-3 px-3 font-mono text-emerald-400 font-bold text-right text-sm">
+                            Rs. {Number(t.revenue || 0).toFixed(2)}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-rose-400 font-bold text-right text-sm">
+                            Rs. {Number(t.expenses || 0).toFixed(2)}
+                          </td>
+                          <td className={`py-3 px-3 font-mono font-black text-right text-sm ${
+                            net >= 0 ? 'text-emerald-400' : 'text-rose-400'
                           }`}>
-                            Rs. {t.net_profit.toFixed(2)}
+                            {net >= 0 ? `+ Rs. ${net.toFixed(2)}` : `- Rs. ${Math.abs(net).toFixed(2)}`}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              net >= 0 
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}>
+                              {net >= 0 ? 'ලාභයි (Surplus)' : 'අලාභයි (Deficit)'}
+                            </span>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
-
-          {/* 4. Congee Varieties Volume Performance */}
-          <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
-            <h3 className="font-bold text-base text-white mb-1 flex items-center gap-2">
-              <Soup className="w-5 h-5 text-emerald-400" />
-              Congee Sales Volume ({selectedDate})
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">Bowls served per variety for the chosen day</p>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {report.item_sales?.map((item) => (
-                <div key={item.id} className="p-4 rounded-2xl bg-slate-850 border border-slate-800 text-center">
-                  <span className="text-xs font-bold font-sinhala text-emerald-300 block">{item.sinhala_name}</span>
-                  <span className="text-xs font-semibold text-white block mt-0.5">{item.name}</span>
-                  <div className="text-xl font-black text-white mt-2 font-mono">
-                    {item.bowls_sold} <span className="text-xs font-normal text-slate-400">bowls</span>
-                  </div>
-                  <span className="text-[11px] font-mono text-emerald-400 block mt-1">
-                    Rs. {Number(item.total_sales).toFixed(2)}
-                  </span>
-                </div>
-              ))}
             </div>
-          </div>
+          )}
 
         </div>
       )}

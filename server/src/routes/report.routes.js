@@ -159,13 +159,14 @@ router.get('/summary', async (req, res) => {
             };
         });
 
-        // 7. Congee Sales Volume Breakdown
-        const itemSales = await db.all(`
+        // 7. Congee Sales Volume Breakdown (Daily & Monthly with prices)
+        const dailyItemSales = await db.all(`
             SELECT 
                 mi.id,
                 mi.name,
                 mi.sinhala_name,
                 mi.station_id,
+                mi.price,
                 COALESCE(SUM(oi.quantity), 0) AS bowls_sold,
                 COALESCE(SUM(oi.quantity * oi.price_each), 0) AS total_sales
             FROM menu_items mi
@@ -174,6 +175,30 @@ router.get('/summary', async (req, res) => {
             GROUP BY mi.id
             ORDER BY bowls_sold DESC, mi.id ASC
         `, [targetDate]);
+
+        const monthlyItemSales = await db.all(`
+            SELECT 
+                mi.id,
+                mi.name,
+                mi.sinhala_name,
+                mi.station_id,
+                mi.price,
+                COALESCE(SUM(oi.quantity), 0) AS bowls_sold,
+                COALESCE(SUM(oi.quantity * oi.price_each), 0) AS total_sales
+            FROM menu_items mi
+            LEFT JOIN order_items oi ON mi.id = oi.menu_item_id
+            LEFT JOIN orders o ON oi.order_id = o.id AND strftime('%Y-%m', o.created_at) = ? AND o.status != 'cancelled'
+            GROUP BY mi.id
+            ORDER BY bowls_sold DESC, mi.id ASC
+        `, [targetMonth]);
+
+        // Detailed expenses list for selected date/month (for reporting & export)
+        const detailedExpenses = await db.all(`
+            SELECT id, date, category, amount, note, created_at
+            FROM expenses
+            WHERE strftime('%Y-%m', date) = ?
+            ORDER BY date DESC, id DESC
+        `, [targetMonth]);
 
         res.json({
             success: true,
@@ -189,7 +214,8 @@ router.get('/summary', async (req, res) => {
                 expenses_count: dailyExpensesCount,
                 net_profit: dailyNetProfit,
                 payment_breakdown: dailyPaymentBreakdown,
-                expense_categories: dailyCategoryBreakdown
+                expense_categories: dailyCategoryBreakdown,
+                item_sales: dailyItemSales
             },
             monthly: {
                 revenue: monthlyRevenue,
@@ -198,7 +224,8 @@ router.get('/summary', async (req, res) => {
                 expenses_count: monthlyExpensesCount,
                 net_profit: monthlyNetProfit,
                 payment_breakdown: monthlyPaymentBreakdown,
-                expense_categories: monthlyCategoryBreakdown
+                expense_categories: monthlyCategoryBreakdown,
+                item_sales: monthlyItemSales
             },
             daily_trends: dailyTrends,
             partner_profit_split: {
@@ -206,7 +233,9 @@ router.get('/summary', async (req, res) => {
                 total_percentage: partners.reduce((s, p) => s + p.share_percentage, 0),
                 partners: partnerSplits
             },
-            item_sales: itemSales
+            item_sales: dailyItemSales,
+            monthly_item_sales: monthlyItemSales,
+            detailed_expenses: detailedExpenses
         });
     } catch (err) {
         console.error('[Reports API] Summary calculation error:', err);
