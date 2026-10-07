@@ -45,11 +45,10 @@ export default function CashierPOS() {
   const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash' | 'qr' | 'card'
   const [placingOrder, setPlacingOrder] = useState(false);
   const [receiptOrder, setReceiptOrder] = useState(null);
-  const [readyOrders, setReadyOrders] = useState([]);
   const [completedOrders, setCompletedOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch initial active menu items, currently ready orders, and today's completed orders
+  // Fetch initial active menu items and today's orders
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -57,18 +56,11 @@ export default function CashierPOS() {
       const menuData = await menuRes.json();
       if (menuData.success) setMenuItems(menuData.data);
 
-      const openRes = await fetch('/api/orders/open');
-      const openData = await openRes.json();
-      if (openData.success) {
-        // Filter those already marked 'ready' for the shelf
-        setReadyOrders(openData.data.filter(o => o.status === 'ready'));
-      }
-
-      // Fetch completed (verified) orders
-      const completedRes = await fetch('/api/orders?status=verified&limit=100');
-      const completedData = await completedRes.json();
-      if (completedData.success) {
-        setCompletedOrders(completedData.data);
+      // Fetch today's orders for cashier sales & bills log
+      const ordersRes = await fetch('/api/orders?limit=100');
+      const ordersData = await ordersRes.json();
+      if (ordersData.success) {
+        setCompletedOrders(ordersData.data);
       }
     } catch (err) {
       console.error('POS fetch error:', err);
@@ -81,42 +73,24 @@ export default function CashierPOS() {
     fetchData();
   }, []);
 
-  // Real-time WebSocket Listeners
+  // Real-time WebSocket Listeners for POS updates
   useEffect(() => {
     if (!socket) return;
 
-    // Listen for orders marked 'ready' by kitchen
-    const handleOrderReady = (order) => {
-      console.log('⚡ Cashier received order:ready:', order.token_code);
-      soundManager.playKitchenChime();
-      setReadyOrders(prev => [order, ...prev.filter(o => o.id !== order.id)]);
-    };
-
-    // Listen for orders verified (remove from shelf and add to completed log)
-    const handleOrderVerified = (order) => {
-      setReadyOrders(prev => prev.filter(o => o.id !== order.id));
+    // When an order is created or updated, update cashier's orders list
+    const handleOrderCreated = (order) => {
       setCompletedOrders(prev => [order, ...prev.filter(o => o.id !== order.id)]);
     };
 
-    // Generic updates
     const handleOrderUpdated = (order) => {
-      if (order.status === 'ready') {
-        setReadyOrders(prev => [order, ...prev.filter(o => o.id !== order.id)]);
-      } else if (order.status === 'verified') {
-        setReadyOrders(prev => prev.filter(o => o.id !== order.id));
-        setCompletedOrders(prev => [order, ...prev.filter(o => o.id !== order.id)]);
-      } else {
-        setReadyOrders(prev => prev.filter(o => o.id !== order.id));
-      }
+      setCompletedOrders(prev => prev.map(o => o.id === order.id ? order : o));
     };
 
-    socket.on('order:ready', handleOrderReady);
-    socket.on('order:verified', handleOrderVerified);
+    socket.on('order:created', handleOrderCreated);
     socket.on('order:updated', handleOrderUpdated);
 
     return () => {
-      socket.off('order:ready', handleOrderReady);
-      socket.off('order:verified', handleOrderVerified);
+      socket.off('order:created', handleOrderCreated);
       socket.off('order:updated', handleOrderUpdated);
     };
   }, [socket]);
@@ -193,25 +167,7 @@ export default function CashierPOS() {
     }
   };
 
-  // Cashier Verify & Hand Over
-  const handleVerifyOrder = async (orderId) => {
-    try {
-      const res = await fetch(`/api/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'verified' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setReadyOrders(prev => prev.filter(o => o.id !== orderId));
-        setCompletedOrders(prev => [data.data, ...prev.filter(o => o.id !== orderId)]);
-      } else {
-        alert(data.error || 'Could not verify order');
-      }
-    } catch (err) {
-      console.error('Verify error:', err);
-    }
-  };
+
 
   // Calculations
   const cartEntries = Object.entries(cart).filter(([_, qty]) => qty > 0);
@@ -241,7 +197,7 @@ export default function CashierPOS() {
   return (
     <div className="flex-1 flex flex-col gap-6 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6">
       
-      {/* Quick KPI Stat Banner for Cashier */}
+      {/* Quick KPI Stat Banner for Cashier POS */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3 shadow-sm">
           <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -253,25 +209,18 @@ export default function CashierPOS() {
           </div>
         </div>
 
-        <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3 shadow-sm">
-          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            <BellRing className={`w-5 h-5 stroke-[2.2] ${readyOrders.length > 0 ? 'animate-bounce' : ''}`} />
+        <button
+          onClick={() => setShowCompletedModal(true)}
+          className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 flex items-center gap-3 shadow-sm text-left transition-all group cursor-pointer"
+        >
+          <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20 group-hover:scale-105 transition-transform">
+            <Receipt className="w-5 h-5 stroke-[2.2]" />
           </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Ready to Hand Over</span>
-            <span className="text-base font-black text-amber-300 font-mono">{readyOrders.length} Ready</span>
+          <div className="min-w-0">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">Total Bills Issued</span>
+            <span className="text-base font-black text-teal-300 font-mono">{completedOrders.length} Bills</span>
           </div>
-        </div>
-
-        <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3 shadow-sm">
-          <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
-            <CheckCheck className="w-5 h-5 stroke-[2.2]" />
-          </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Completed Orders</span>
-            <span className="text-base font-black text-teal-300 font-mono">{completedOrders.length} Done</span>
-          </div>
-        </div>
+        </button>
 
         <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3 shadow-sm">
           <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -282,67 +231,25 @@ export default function CashierPOS() {
             <span className="text-base font-black text-indigo-300 font-mono">{cartItemCount} Bowls</span>
           </div>
         </div>
-      </div>
 
-      {/* 1. "Ready to Verify & Hand Over" Shelf */}
-      {readyOrders.length > 0 && (
-        <section className="p-4 sm:p-5 rounded-3xl bg-amber-950/40 border border-amber-500/40 shadow-xl shadow-amber-950/20 animate-in fade-in slide-in-from-top-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
-                <BellRing className="w-5 h-5 animate-bounce" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  Ready to Verify & Hand Over (භාරදීමට සූදානම්)
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
-                    {readyOrders.length} Ready
-                  </span>
-                </h2>
-                <p className="text-xs text-amber-200/80">Congee prepared by kitchen staff. Collect payment & hand over to customer.</p>
-              </div>
+        <button
+          onClick={() => setShowCompletedModal(true)}
+          className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 hover:bg-emerald-900/40 flex items-center justify-between gap-3 shadow-sm text-left transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <History className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-emerald-300 block tracking-wider">Bills Log</span>
+              <span className="text-xs font-bold text-white group-hover:text-emerald-300 transition-colors">බිල්පත් ලේඛනය</span>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {readyOrders.map((ord) => (
-              <div 
-                key={ord.id}
-                className="p-3.5 rounded-2xl bg-slate-900/90 border border-amber-500/30 flex items-center justify-between gap-3 shadow-md"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg font-black font-mono px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      {ord.token_code || ord.token_display || `#${ord.token_number}`}
-                    </span>
-                    <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-300">
-                      {ord.order_type === 'dine_in' ? 'Dine-In' : 'Takeaway'}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-300 mt-1.5">
-                    {ord.items?.map((it, idx) => (
-                      <span key={idx} className="mr-1.5 font-medium">
-                        {it.name} <span className="text-amber-400 font-bold">({it.quantity}x)</span>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="text-xs font-bold text-white mt-1">
-                    Total: Rs. {Number(ord.total_amount).toFixed(2)} ({ord.payment_method?.toUpperCase()})
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleVerifyOrder(ord.id)}
-                  className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/60 transition-all active:scale-95 flex-shrink-0"
-                >
-                  <CheckCheck className="w-4 h-4" />
-                  Hand Over to Customer (භාර දුන්නා)
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+          <span className="text-xs px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+            {completedOrders.length}
+          </span>
+        </button>
+      </div>
 
       {/* 2. Main POS Split View: Left Menu Grid, Right Cart */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 items-start">

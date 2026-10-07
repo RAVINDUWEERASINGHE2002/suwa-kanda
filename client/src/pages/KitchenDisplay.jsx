@@ -3,6 +3,7 @@ import {
   ChefHat, 
   Clock, 
   CheckCircle2, 
+  Check,
   Volume2, 
   VolumeX, 
   Sparkles, 
@@ -14,8 +15,10 @@ import {
   Sprout,
   Wheat,
   HeartPulse,
-  LayoutGrid,
-  Bell
+  Bell,
+  X,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { soundManager } from '../utils/sound';
@@ -25,17 +28,20 @@ export default function KitchenDisplay() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stationFilter, setStationFilter] = useState('all');
+  const [viewTab, setViewTab] = useState('active'); // 'active' | 'completed' | 'all'
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [newOrderAlert, setNewOrderAlert] = useState(null);
+  const [justCompletedId, setJustCompletedId] = useState(null);
   const [now, setNow] = useState(Date.now());
 
-  // Periodically refresh now to update elapsed minutes
+  // Periodically update clock for elapsed minutes
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15000);
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch open orders (pending and ready)
-  const fetchOpenOrders = async () => {
+  // Fetch open orders from backend
+  const fetchOrders = async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/orders/open');
@@ -51,56 +57,61 @@ export default function KitchenDisplay() {
   };
 
   useEffect(() => {
-    fetchOpenOrders();
+    fetchOrders();
   }, []);
 
-  // Realtime Socket.io Event Handling
+  // Real-time WebSocket Listeners
   useEffect(() => {
     if (!socket) return;
 
+    // 1. When cashier creates / bills a new order: INSTANT NOTIFICATION!
     const handleOrderCreated = (newOrder) => {
-      console.log('🍳 KDS received order:created:', newOrder.token_code);
+      console.log('🔔 Kitchen received NEW order:', newOrder.token_code || newOrder.token_number);
+      
+      // Play penetrating kitchen chime & trigger vibration
       if (soundEnabled) {
         soundManager.playKitchenChime();
       }
+
+      // Display prominent top notification alert
+      setNewOrderAlert(newOrder);
+
+      // Add to ticket list
       setOrders(prev => {
-        // Only add if not already in list
         if (prev.some(o => o.id === newOrder.id)) return prev;
         return [newOrder, ...prev];
       });
+
+      // Automatically auto-dismiss toast banner after 12 seconds
+      setTimeout(() => {
+        setNewOrderAlert(curr => curr?.id === newOrder.id ? null : curr);
+      }, 12000);
     };
 
-    const handleOrderReady = (readyOrder) => {
-      setOrders(prev => prev.map(o => o.id === readyOrder.id ? readyOrder : o));
-    };
-
-    const handleOrderVerified = (verifiedOrder) => {
-      // Verified orders are handed over to customer -> remove from kitchen screen
-      setOrders(prev => prev.filter(o => o.id !== verifiedOrder.id));
-    };
-
+    // 2. When order status updates
     const handleOrderUpdated = (updatedOrder) => {
-      if (['verified', 'cancelled'].includes(updatedOrder.status)) {
-        setOrders(prev => prev.filter(o => o.id !== updatedOrder.id));
+      if (['cancelled', 'verified'].includes(updatedOrder.status)) {
+        // Keep in list if in 'all' or remove if inactive
+        setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
       } else {
         setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
       }
     };
 
     socket.on('order:created', handleOrderCreated);
-    socket.on('order:ready', handleOrderReady);
-    socket.on('order:verified', handleOrderVerified);
+    socket.on('order:preparing', handleOrderUpdated);
+    socket.on('order:ready', handleOrderUpdated);
     socket.on('order:updated', handleOrderUpdated);
 
     return () => {
       socket.off('order:created', handleOrderCreated);
-      socket.off('order:ready', handleOrderReady);
-      socket.off('order:verified', handleOrderVerified);
+      socket.off('order:preparing', handleOrderUpdated);
+      socket.off('order:ready', handleOrderUpdated);
       socket.off('order:updated', handleOrderUpdated);
     };
   }, [socket, soundEnabled]);
 
-  // Update order status (preparing | ready)
+  // Status updates
   const handleUpdateStatus = async (orderId, newStatus) => {
     try {
       const res = await fetch(`/api/orders/${orderId}/status`, {
@@ -111,12 +122,41 @@ export default function KitchenDisplay() {
       const data = await res.json();
       if (data.success) {
         setOrders(prev => prev.map(o => o.id === orderId ? data.data : o));
+        return data.data;
       } else {
         alert(data.error || 'Failed to update order');
       }
     } catch (err) {
       console.error('KDS update error:', err);
     }
+    return null;
+  };
+
+  // Kitchen Staff Action 1: Accept Order (භාරගන්න)
+  const handleAcceptOrder = async (orderId) => {
+    soundManager.playAccept();
+    if (newOrderAlert?.id === orderId) {
+      setNewOrderAlert(null);
+    }
+    await handleUpdateStatus(orderId, 'preparing');
+  };
+
+  // Kitchen Staff Action 2: Tick Complete (✔ සූදානම් / Complete)
+  const handleCompleteOrder = async (orderId) => {
+    soundManager.playTickComplete();
+    setJustCompletedId(orderId);
+    
+    await handleUpdateStatus(orderId, 'ready');
+
+    // Keep celebration visible briefly, then reset
+    setTimeout(() => {
+      setJustCompletedId(curr => curr === orderId ? null : curr);
+    }, 2200);
+  };
+
+  // Kitchen Staff Action 3: Undo Complete (නැවත පිළියෙල කරන්න)
+  const handleUndoOrder = async (orderId) => {
+    await handleUpdateStatus(orderId, 'preparing');
   };
 
   const handleTestSound = () => {
@@ -136,117 +176,251 @@ export default function KitchenDisplay() {
     return Math.max(0, Math.floor((now - orderTime) / 60000));
   };
 
-  // Station filtering: check if order contains items belonging to selected station
-  const filteredOrders = stationFilter === 'all'
+  // Filter orders by Station (Kola, Grain, Herbal)
+  const stationFilteredOrders = stationFilter === 'all'
     ? orders
     : orders.filter(o => o.items?.some(it => it.station_id === stationFilter));
 
-  const pendingCount = orders.filter(o => o.status === 'pending').length;
-  const readyCount = orders.filter(o => o.status === 'ready').length;
+  // Filter by Tab: Active (pending + preparing), Completed (ready + verified), or All
+  const activeOrders = stationFilteredOrders.filter(o => ['pending', 'preparing'].includes(o.status));
+  const completedOrders = stationFilteredOrders.filter(o => ['ready', 'verified'].includes(o.status));
+
+  const displayOrders = viewTab === 'active' 
+    ? activeOrders 
+    : viewTab === 'completed' 
+    ? completedOrders 
+    : stationFilteredOrders;
+
+  const totalPending = orders.filter(o => o.status === 'pending').length;
+  const totalPreparing = orders.filter(o => o.status === 'preparing').length;
+  const totalReady = orders.filter(o => o.status === 'ready').length;
 
   return (
-    <div className="flex-1 flex flex-col gap-6 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+    <div className="flex-1 flex flex-col gap-5 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-5 pb-24 md:pb-8">
       
-      {/* KDS Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
-            <ChefHat className="w-7 h-7" />
+      {/* 1. INSTANT NEW ORDER NOTIFICATION BANNER (When Cashier Bills) */}
+      {newOrderAlert && (
+        <div className="sticky top-20 z-50 p-4 sm:p-5 rounded-3xl bg-amber-500 text-slate-950 shadow-2xl shadow-amber-500/40 ring-4 ring-amber-300 animate-in bounce-in duration-300">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center flex-shrink-0 animate-bounce">
+                <Bell className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase font-black px-2 py-0.5 rounded-md bg-slate-950 text-amber-400">
+                    🔔 අලුත් ඇණවුමක්! (New Order)
+                  </span>
+                  <span className="text-xs font-bold text-slate-900">
+                    {newOrderAlert.order_type === 'dine_in' ? '🍽️ Dine-In' : '🥡 Takeaway'}
+                  </span>
+                </div>
+                <div className="text-xl sm:text-2xl font-black font-mono tracking-tight mt-0.5 flex items-center gap-2 text-slate-950">
+                  Token {newOrderAlert.token_code || `#${newOrderAlert.token_number}`}
+                  <span className="text-sm font-sans font-extrabold text-slate-900">
+                    ({newOrderAlert.items?.reduce((s, i) => s + i.quantity, 0)} Bowls)
+                  </span>
+                </div>
+                <div className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-md mt-0.5">
+                  {newOrderAlert.items?.map(i => `${i.sinhala_name || i.name} x${i.quantity}`).join(' • ')}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => handleAcceptOrder(newOrderAlert.id)}
+                className="px-5 py-3 rounded-2xl bg-slate-950 hover:bg-slate-900 text-amber-400 font-black text-sm flex items-center gap-2 shadow-xl shadow-slate-950/50 active:scale-95 cursor-pointer whitespace-nowrap"
+              >
+                <ChefHat className="w-4 h-4 text-amber-400" />
+                👉 භාරගන්න (Accept Order)
+              </button>
+              <button
+                onClick={() => setNewOrderAlert(null)}
+                className="p-3 rounded-2xl bg-amber-600/30 hover:bg-amber-600/50 text-slate-950 transition-colors"
+                title="Dismiss Banner"
+              >
+                <X className="w-5 h-5 stroke-[2.5]" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Top KDS Control Panel */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-slate-900/95 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        
+        {/* Title & Live Badge */}
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-950/40 flex-shrink-0">
+            <ChefHat className="w-7 h-7 stroke-[2.2]" />
           </div>
           <div>
-            <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
-              Kitchen Display System (KDS)
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">
-                Live Feed
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-black text-white tracking-tight">
+                Kitchen Display (සුව කැඳ කුස්සිය)
+              </h1>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/30 animate-pulse">
+                LIVE
               </span>
-            </h2>
-            <p className="text-xs text-slate-400">Thanamalwila Herbal Congee Prep Line</p>
+            </div>
+            <p className="text-xs text-slate-400">
+              තණමල්විල ඖෂධීය කැඳ පිළියෙල කිරීමේ අංශය
+            </p>
           </div>
         </div>
 
-        {/* Action Controls & Sound Toggle */}
+        {/* Status Counters & Controls */}
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          {/* Quick Metrics */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-800/80 border border-slate-700 text-xs">
-            <span className="font-semibold text-slate-300">Pending:</span>
-            <span className="font-mono font-bold text-amber-400 text-sm">{pendingCount}</span>
+          {/* Quick Metrics Badges */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-xs">
+            <span className="text-amber-400 font-bold font-mono">
+              🔔 {totalPending} අලුත්
+            </span>
             <span className="text-slate-600">|</span>
-            <span className="font-semibold text-slate-300">Ready:</span>
-            <span className="font-mono font-bold text-emerald-400 text-sm">{readyCount}</span>
+            <span className="text-sky-400 font-bold font-mono">
+              👨‍🍳 {totalPreparing} හදන
+            </span>
+            <span className="text-slate-600">|</span>
+            <span className="text-emerald-400 font-bold font-mono">
+              ✔ {totalReady} සූදානම්
+            </span>
           </div>
 
-          {/* Sound enable / test toggle */}
+          {/* Sound Toggle */}
           <button
             onClick={toggleSound}
-            className={`px-3 py-2 rounded-2xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+            className={`px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
               soundEnabled 
-                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/50 hover:bg-emerald-900/40' 
+                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/50' 
                 : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
             }`}
-            title="Toggle Kitchen Order Chime"
+            title="Toggle Order Chime Sound"
           >
             {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4" />}
-            <span>{soundEnabled ? 'Chime Active' : 'Muted'}</span>
+            <span className="hidden sm:inline">{soundEnabled ? 'නාදය සක්‍රියයි' : 'Muted'}</span>
           </button>
 
+          {/* Test Sound Button */}
           <button
             onClick={handleTestSound}
-            className="p-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all"
-            title="Test Chime Sound"
+            className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-750 text-amber-400 border border-slate-700/80 transition-all active:scale-95 cursor-pointer"
+            title="Test Chime Sound & Vibration"
           >
-            <Sparkles className="w-4 h-4 text-amber-400" />
+            <Sparkles className="w-4 h-4" />
           </button>
 
+          {/* Refresh Button */}
           <button
-            onClick={fetchOpenOrders}
-            className="p-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all active:scale-95"
-            title="Refresh Tickets"
+            onClick={fetchOrders}
+            className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700/80 transition-all active:scale-95 cursor-pointer"
+            title="Refresh Orders"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
         </div>
+
       </div>
 
-      {/* Station Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        {[
-          { id: 'all', label: 'All Stations (සියලු අංශ)', count: orders.length },
-          { id: 'kola', label: '🌿 Kola Station (කොළ කැඳ)', count: orders.filter(o => o.items?.some(i => i.station_id === 'kola')).length },
-          { id: 'grain', label: '🌾 Grain Station (ධාන්‍ය කැඳ)', count: orders.filter(o => o.items?.some(i => i.station_id === 'grain')).length },
-          { id: 'herbal', label: '🍵 Herbal Station (ඖෂධීය කැඳ)', count: orders.filter(o => o.items?.some(i => i.station_id === 'herbal')).length },
-        ].map(station => (
+      {/* 3. Main Workflow View Tabs (Active vs Completed) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        
+        {/* Primary View Toggle: Active Cooking vs Completed */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-900/90 rounded-2xl border border-slate-800">
           <button
-            key={station.id}
-            onClick={() => setStationFilter(station.id)}
-            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
-              stationFilter === station.id
-                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-950 font-black'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+            onClick={() => setViewTab('active')}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all flex items-center gap-2 cursor-pointer ${
+              viewTab === 'active'
+                ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                : 'text-slate-300 hover:text-white'
             }`}
           >
-            <span>{station.label}</span>
+            <Flame className="w-4 h-4" />
+            <span>පිළියෙල කරන ඇණවුම් (Active)</span>
             <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
-              stationFilter === station.id ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-800 text-slate-400'
+              viewTab === 'active' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-800 text-amber-400'
             }`}>
-              {station.count}
+              {activeOrders.length}
             </span>
           </button>
-        ))}
+
+          <button
+            onClick={() => setViewTab('completed')}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all flex items-center gap-2 cursor-pointer ${
+              viewTab === 'completed'
+                ? 'bg-emerald-600 text-white shadow-md font-black'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>සූදානම් කළ ඇණවුම් (Done)</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+              viewTab === 'completed' ? 'bg-white/20 text-white' : 'bg-slate-800 text-emerald-400'
+            }`}>
+              {completedOrders.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setViewTab('all')}
+            className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all hidden md:flex items-center gap-1.5 cursor-pointer ${
+              viewTab === 'all'
+                ? 'bg-slate-700 text-white shadow-md font-black'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>සියල්ල ({stationFilteredOrders.length})</span>
+          </button>
+        </div>
+
+        {/* Station Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          {[
+            { id: 'all', label: 'සියලු කැඳ' },
+            { id: 'kola', label: '🌿 කොළ කැඳ' },
+            { id: 'grain', label: '🌾 ධාන්‍ය කැඳ' },
+            { id: 'herbal', label: '🍵 ඖෂධීය' },
+          ].map(station => (
+            <button
+              key={station.id}
+              onClick={() => setStationFilter(station.id)}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                stationFilter === station.id
+                  ? 'bg-slate-800 text-emerald-400 border border-emerald-500/40 ring-1 ring-emerald-500/20 font-black'
+                  : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 border border-slate-800'
+              }`}
+            >
+              {station.label}
+            </button>
+          ))}
+        </div>
+
       </div>
 
-      {/* Open Orders Ticket Wall */}
-      {filteredOrders.length === 0 ? (
-        <div className="py-20 rounded-3xl bg-slate-900/40 border border-slate-800 flex flex-col items-center justify-center gap-3 text-slate-400 text-center">
-          <Soup className="w-12 h-12 text-slate-400 stroke-1" />
-          <h3 className="text-lg font-bold text-slate-200">No Open Kitchen Tickets</h3>
+      {/* 4. Active / Completed Ticket Cards Grid */}
+      {displayOrders.length === 0 ? (
+        <div className="py-20 rounded-3xl bg-slate-900/40 border border-slate-800/80 flex flex-col items-center justify-center gap-3 text-slate-400 text-center px-4">
+          <div className="w-16 h-16 rounded-3xl bg-slate-800/60 flex items-center justify-center text-slate-500">
+            <Soup className="w-8 h-8 stroke-1" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-200">
+            {viewTab === 'active' 
+              ? 'පිළියෙල කිරීමට නව ඇණවුම් නොමැත (No Active Orders)' 
+              : 'සූදානම් කළ ඇණවුම් නොමැත (No Completed Orders)'}
+          </h3>
           <p className="text-xs text-slate-400 max-w-sm">
-            All congees are prepared and served! New orders placed at the Cashier POS will appear and chime automatically.
+            {viewTab === 'active' 
+              ? 'කැෂියර් මඟින් බිල්පත් කළ පසු නව ඇණවුම් මෙහි ස්වයංක්‍රීයව දිස්වේ.' 
+              : 'ඔබ ටික් (✔) කළ සියලුම ඇණවුම් මෙහි සටහන් වේ.'}
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredOrders.map(order => {
-            const isReady = order.status === 'ready';
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
+          {displayOrders.map(order => {
+            const isPending = order.status === 'pending';
+            const isPreparing = order.status === 'preparing';
+            const isReady = ['ready', 'verified'].includes(order.status);
+            const isCelebrating = justCompletedId === order.id;
             const elapsed = getElapsedMinutes(order.created_at);
             const isUrgent = elapsed >= 8 && !isReady;
 
@@ -254,57 +428,89 @@ export default function KitchenDisplay() {
               <div
                 key={order.id}
                 className={`
-                  p-5 rounded-3xl border-2 transition-all flex flex-col justify-between select-none shadow-xl
-                  ${isReady 
-                    ? 'bg-slate-900/80 border-emerald-500/50 shadow-emerald-950/20 opacity-90' 
-                    : isUrgent
-                    ? 'bg-slate-900/95 border-rose-500/80 shadow-rose-950/40 ring-1 ring-rose-500/30'
-                    : 'bg-slate-900/95 border-amber-500/50 shadow-amber-950/30'
+                  p-5 rounded-3xl border-2 transition-all flex flex-col justify-between select-none shadow-xl relative overflow-hidden
+                  ${isCelebrating
+                    ? 'bg-emerald-950/80 border-emerald-400 ring-4 ring-emerald-400/50 scale-[1.02]'
+                    : isPending
+                    ? 'bg-slate-900/95 border-amber-400 ring-2 ring-amber-400/30 shadow-amber-950/40'
+                    : isPreparing
+                    ? isUrgent
+                      ? 'bg-slate-900/95 border-rose-500 ring-2 ring-rose-500/40 shadow-rose-950/50'
+                      : 'bg-slate-900/95 border-teal-500/60 ring-1 ring-teal-500/30 shadow-teal-950/30'
+                    : 'bg-slate-900/80 border-slate-800 opacity-90'
                   }
                 `}
               >
+                {/* Celebration Overlay on Tick Complete */}
+                {isCelebrating && (
+                  <div className="absolute inset-0 bg-emerald-600/90 z-20 flex flex-col items-center justify-center gap-2 text-white animate-in zoom-in-95 duration-200">
+                    <div className="w-14 h-14 rounded-full bg-white text-emerald-600 flex items-center justify-center shadow-2xl">
+                      <Check className="w-9 h-9 stroke-[3]" />
+                    </div>
+                    <span className="text-xl font-black font-mono">
+                      Token {order.token_code || `#${order.token_number}`}
+                    </span>
+                    <span className="text-sm font-black font-sinhala">
+                      ✔ සූදානම්! (Completed)
+                    </span>
+                  </div>
+                )}
+
                 <div>
-                  {/* Big Ticket Header */}
-                  <div className="flex items-start justify-between pb-3 border-b border-slate-800">
+                  {/* Card Header: Giant Token + Order Mode + Elapsed */}
+                  <div className="flex items-start justify-between pb-3.5 border-b border-slate-800">
                     <div>
-                      {/* Giant Token Display for staff viewing */}
+                      {/* Giant Monospace Token */}
                       <span className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white block">
                         {order.token_code || order.token_display || `#${order.token_number}`}
                       </span>
-                      <div className="flex items-center gap-1.5 mt-1">
+
+                      {/* Order Type Badge */}
+                      <div className="flex items-center gap-1.5 mt-1.5">
                         <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-lg flex items-center gap-1 ${
                           order.order_type === 'dine_in' 
-                            ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/60' 
-                            : 'bg-teal-950/60 text-teal-300 border border-teal-800/60'
+                            ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/60' 
+                            : 'bg-teal-950/70 text-teal-300 border border-teal-800/60'
                         }`}>
                           {order.order_type === 'dine_in' ? <Utensils className="w-3 h-3" /> : <Package className="w-3 h-3" />}
-                          {order.order_type === 'dine_in' ? 'Dine-In' : 'Takeaway'}
+                          {order.order_type === 'dine_in' ? 'Dine-In (ශාලාවේ)' : 'Takeaway (රැගෙන)'}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex flex-col items-end gap-1.5">
-                      {/* Status indicator */}
-                      <span className={`text-xs px-3 py-1 rounded-full font-black uppercase tracking-wider ${
-                        isReady 
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
-                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
-                      }`}>
-                        {isReady ? 'READY' : 'PREPARING'}
-                      </span>
+                      {/* Stage Badge */}
+                      {isPending && (
+                        <span className="text-[11px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse flex items-center gap-1">
+                          <Bell className="w-3 h-3 text-amber-400" />
+                          අලුත් ඇණවුම
+                        </span>
+                      )}
+                      {isPreparing && (
+                        <span className="text-[11px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 flex items-center gap-1">
+                          <Flame className="w-3 h-3 text-sky-400 animate-bounce" />
+                          පිළියෙල කරමින්
+                        </span>
+                      )}
+                      {isReady && (
+                        <span className="text-[11px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          සූදානම්
+                        </span>
+                      )}
 
-                      {/* Elapsed Time Badge */}
+                      {/* Elapsed Time */}
                       <span className={`text-xs font-mono font-bold flex items-center gap-1 ${
-                        isUrgent ? 'text-rose-400 animate-pulse' : 'text-slate-400'
+                        isUrgent ? 'text-rose-400 font-black animate-pulse' : 'text-slate-400'
                       }`}>
-                        {isUrgent ? <Flame className="w-3.5 h-3.5 text-rose-400 animate-bounce" /> : <Clock className="w-3.5 h-3.5" />}
-                        {elapsed} min ago
+                        {isUrgent ? <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> : <Clock className="w-3.5 h-3.5" />}
+                        {elapsed} min
                       </span>
                     </div>
                   </div>
 
-                  {/* High-Contrast Large Congee Line Items */}
-                  <div className="py-4 flex flex-col gap-3">
+                  {/* Congee Line Items: Big Sinhala Names & Giant Quantities */}
+                  <div className="py-3.5 flex flex-col gap-2.5">
                     {order.items?.map((item, idx) => {
                       const itemIcon = {
                         kola: Sprout,
@@ -316,33 +522,27 @@ export default function KitchenDisplay() {
                       return (
                         <div 
                           key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-850/90 border border-slate-800/80 flex items-center justify-between gap-3 shadow-sm"
+                          className="p-3 rounded-2xl bg-slate-850/90 border border-slate-800 flex items-center justify-between gap-3 shadow-sm"
                         >
                           <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-emerald-400 flex-shrink-0">
-                              <ItemIconComp className="w-5 h-5 stroke-[2.2]" />
+                            <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                              <ItemIconComp className="w-4 h-4 stroke-[2.2]" />
                             </div>
 
                             <div className="flex-1 min-w-0">
                               {/* Large Sinhala Label */}
-                              <div className="text-lg font-black font-sinhala text-emerald-300 leading-tight truncate">
-                                {item.sinhala_name}
+                              <div className="text-base sm:text-lg font-black font-sinhala text-emerald-300 leading-tight truncate">
+                                {item.sinhala_name || item.name}
                               </div>
-                              {/* English Label */}
-                              <div className="text-xs font-semibold text-slate-300 mt-0.5 truncate">
+                              {/* English Sub-Label */}
+                              <div className="text-[11px] font-semibold text-slate-400 truncate">
                                 {item.name}
-                              </div>
-                              {/* Station Tag */}
-                              <div className="mt-1">
-                                <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                                  {item.station_id}
-                                </span>
                               </div>
                             </div>
                           </div>
 
-                          {/* High-Contrast Quantity Callout */}
-                          <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center border-2 border-emerald-500/40 text-emerald-300 font-mono font-black text-xl flex-shrink-0 shadow-inner">
+                          {/* Giant High-Contrast Quantity Counter */}
+                          <div className="w-11 h-11 rounded-2xl bg-slate-900 border-2 border-emerald-500/40 text-emerald-300 font-mono font-black text-xl flex items-center justify-center flex-shrink-0 shadow-inner">
                             x{item.quantity}
                           </div>
                         </div>
@@ -351,39 +551,42 @@ export default function KitchenDisplay() {
                   </div>
                 </div>
 
-                {/* Kitchen Action Buttons */}
+                {/* 5. Clear Workflow Action Buttons */}
                 <div className="pt-3 border-t border-slate-800">
-                  {order.status === 'pending' ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => handleUpdateStatus(order.id, 'preparing')}
-                        className="py-3 px-2 rounded-2xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
-                        title="Accept order and start brewing"
-                      >
-                        <Flame className="w-4 h-4" />
-                        Accept (පිළියෙල)
-                      </button>
-                      <button
-                        onClick={() => handleUpdateStatus(order.id, 'ready')}
-                        className="py-3 px-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
-                        title="Mark congee as ready"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Ready (සූදානම්)
-                      </button>
-                    </div>
-                  ) : order.status === 'preparing' ? (
+                  {isPending && (
                     <button
-                      onClick={() => handleUpdateStatus(order.id, 'ready')}
-                      className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-950/80 active:scale-95 cursor-pointer ring-2 ring-emerald-400/40"
+                      onClick={() => handleAcceptOrder(order.id)}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl shadow-amber-950/50 active:scale-95 cursor-pointer ring-2 ring-amber-300/40"
                     >
-                      <CheckCircle2 className="w-5 h-5" />
-                      Mark Ready (සූදානම් - Cashier ට භාරදෙන්න)
+                      <ChefHat className="w-5 h-5 text-slate-950" />
+                      <span>👉 භාරගන්න (Accept Order)</span>
                     </button>
-                  ) : (
-                    <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold text-center flex items-center justify-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      Marked Ready • Awaiting Cashier Handover
+                  )}
+
+                  {isPreparing && (
+                    <button
+                      onClick={() => handleCompleteOrder(order.id)}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl shadow-emerald-950/80 active:scale-95 cursor-pointer ring-2 ring-emerald-400/50"
+                    >
+                      <CheckCircle2 className="w-6 h-6 stroke-[2.5]" />
+                      <span>✔ සූදානම් / Complete (හදලා ඉවරයි)</span>
+                    </button>
+                  )}
+
+                  {isReady && (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="px-3 py-2 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1.5 flex-1">
+                        <Check className="w-4 h-4 text-emerald-400" />
+                        <span>සූදානම් කර ඇත (Done)</span>
+                      </div>
+                      <button
+                        onClick={() => handleUndoOrder(order.id)}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Move back to Preparing"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>නැවත</span>
+                      </button>
                     </div>
                   )}
                 </div>
