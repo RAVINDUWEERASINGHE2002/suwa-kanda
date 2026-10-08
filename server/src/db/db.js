@@ -4,10 +4,13 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Ensure .env is loaded from server/.env or root/.env
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const isTurso = Boolean(process.env.TURSO_DATABASE_URL);
 const defaultDbPath = path.resolve(__dirname, '../../../suwa_kanda.db');
