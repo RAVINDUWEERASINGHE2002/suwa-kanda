@@ -51,6 +51,7 @@ export default function ReportsPage() {
   }, [selectedDate, selectedMonth]);
 
   const isDaily = viewMode === 'daily';
+  const dateOrMonth = isDaily ? selectedDate : selectedMonth;
 
   // Current metrics
   const metrics = isDaily ? report?.daily : report?.monthly;
