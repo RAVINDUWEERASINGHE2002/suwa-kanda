@@ -27,11 +27,12 @@ export function createOrderRouter(io) {
     // 1. GET /api/orders/open - Fetch pending, preparing and ready orders
     router.get('/open', async (req, res) => {
         try {
+            const todayDateStr = getColomboDateStr();
             const orders = await db.all(`
                 SELECT * FROM orders 
-                WHERE status IN ('pending', 'preparing', 'ready')
+                WHERE (status IN ('pending', 'preparing', 'ready') OR (status = 'verified' AND DATE(created_at) = ?))
                 ORDER BY created_at ASC, id ASC
-            `);
+            `, [todayDateStr]);
 
             const ordersWithItems = await Promise.all(orders.map(async (order) => {
                 const items = await db.all(`
