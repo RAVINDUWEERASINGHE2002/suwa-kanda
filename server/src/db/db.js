@@ -117,6 +117,11 @@ const defaultPartners = [
     { name: 'Partner 3', share_percentage: 30.0 },
 ];
 
+const defaultUsers = [
+    { username: 'cashier', pin: '1234', role: 'cashier', name: 'Cashier (කැෂියර්)' },
+    { username: 'admin', pin: '9999', role: 'admin', name: 'Owner / Manager (හිමිකරු)' },
+];
+
 // Initialize schema & seeds
 export async function initDatabase() {
     try {
@@ -151,6 +156,19 @@ export async function initDatabase() {
                 );
             }
             console.log(`[Database] Seeded ${defaultPartners.length} partners.`);
+        }
+
+        // Auto-seed users if empty
+        const userCountRow = await db.get('SELECT COUNT(*) as count FROM users');
+        if (!userCountRow || userCountRow.count === 0) {
+            console.log('[Database] Seeding initial users...');
+            for (const u of defaultUsers) {
+                await db.run(
+                    'INSERT INTO users (username, pin, role, name) VALUES (?, ?, ?, ?)',
+                    [u.username, u.pin, u.role, u.name]
+                );
+            }
+            console.log(`[Database] Seeded ${defaultUsers.length} initial users.`);
         }
     } catch (err) {
         console.error('[Database] Initialization error:', err);

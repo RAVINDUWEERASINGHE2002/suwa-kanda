@@ -1,5 +1,3 @@
-import React from 'react';
-import { NavLink } from 'react-router-dom';
 import { 
   Soup, 
   Store, 
@@ -9,12 +7,18 @@ import {
   Sliders, 
   Radio, 
   Database,
-  Sparkles
+  Sparkles,
+  Lock,
+  LogOut,
+  UserCheck,
+  ShieldCheck
 } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Navbar() {
   const { connected } = useSocket();
+  const { user, isAuthenticated, logout } = useAuth();
 
   const navItems = [
     { to: '/cashier', label: 'Cashier POS', sinhala: 'කැෂියර්', icon: Store, accent: 'emerald' },
@@ -81,9 +85,10 @@ export default function Navbar() {
             })}
           </nav>
 
-          {/* System Sync Badges */}
+          {/* System Sync Badges & Auth Status */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl border text-xs transition-all ${
+            {/* Live Sync Badge */}
+            <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-2xl border text-xs transition-all ${
               connected 
                 ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300' 
                 : 'bg-amber-950/30 border-amber-500/30 text-amber-300'
@@ -93,6 +98,35 @@ export default function Navbar() {
                 {connected ? 'Live Sync' : 'Reconnecting...'}
               </span>
             </div>
+
+            {/* Authentication Badge & Lock/Logout */}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-800/90 border border-slate-700/80">
+                <div className="px-2.5 py-1 text-xs font-bold text-white flex items-center gap-1.5">
+                  {user.role === 'admin' ? (
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
+                  ) : (
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                  <span className="hidden md:inline font-sans text-[11px] text-slate-300 font-semibold">{user.name}</span>
+                  <span className="md:hidden font-sans text-[11px] text-emerald-300 font-bold uppercase">{user.role}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="px-2.5 py-1 rounded-xl bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700/60 hover:border-rose-500/40 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+                  title="Lock register / Logout (තිරය අගුළුලන්න)"
+                >
+                  <Lock className="w-3 h-3" />
+                  <span className="hidden sm:inline">අගුළුලන්න</span>
+                </button>
+              </div>
+            ) : (
+              <div className="px-3 py-1.5 rounded-2xl bg-slate-900 border border-slate-800 text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>අගුළුලා ඇත</span>
+              </div>
+            )}
           </div>
 
         </div>

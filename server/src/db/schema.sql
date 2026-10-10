@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS partners (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 6. Users / Cashier Authentication Table
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    pin TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'cashier',
+    name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);

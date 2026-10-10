@@ -12,6 +12,7 @@ import partnerRouter from './routes/partner.routes.js';
 import createOrderRouter from './routes/order.routes.js';
 import expenseRouter from './routes/expense.routes.js';
 import reportRouter from './routes/report.routes.js';
+import authRouter from './routes/auth.routes.js';
 
 dotenv.config();
 
@@ -80,6 +81,7 @@ app.use('/api/orders', createOrderRouter(io));
 app.use('/api/expenses', expenseRouter);
 app.use('/api/reports', reportRouter);
 app.use('/api/partners', partnerRouter);
+app.use('/api/auth', authRouter);
 
 // Serve Frontend Bundle in Production (when client/dist exists)
 const clientDistCandidates = [
