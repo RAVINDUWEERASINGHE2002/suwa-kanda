@@ -13,7 +13,11 @@ import {
   PlusCircle,
   Trash2,
   Tag,
-  Plus
+  Plus,
+  KeyRound,
+  ShieldCheck,
+  Lock,
+  UserCheck
 } from 'lucide-react';
 import { soundManager } from '../utils/sound';
 
@@ -50,6 +54,14 @@ export default function SetupPage() {
   const [partnerEdits, setPartnerEdits] = useState([]);
   const [savingPartners, setSavingPartners] = useState(false);
   const [partnerNotice, setPartnerNotice] = useState(null);
+
+  // PIN Management state
+  const [targetPinRole, setTargetPinRole] = useState('cashier'); // 'cashier' | 'admin'
+  const [adminCurrentPin, setAdminCurrentPin] = useState('');
+  const [newPinValue, setNewPinValue] = useState('');
+  const [confirmPinValue, setConfirmPinValue] = useState('');
+  const [pinUpdating, setPinUpdating] = useState(false);
+  const [pinNotice, setPinNotice] = useState(null);
 
   const fetchSetupData = async () => {
     try {
@@ -279,6 +291,51 @@ export default function SetupPage() {
       setPartnerNotice({ type: 'error', message: 'Error connecting to backend API' });
     } finally {
       setSavingPartners(false);
+    }
+  };
+
+  const handleUpdatePin = async (e) => {
+    e.preventDefault();
+    if (!adminCurrentPin || !newPinValue || !confirmPinValue) {
+      setPinNotice({ type: 'error', message: 'කරුණාකර සියලු විස්තර ඇතුළත් කරන්න (Please fill all fields).' });
+      return;
+    }
+    if (newPinValue !== confirmPinValue) {
+      setPinNotice({ type: 'error', message: 'නව PIN අංක 2 එකිනෙකට නොගැළපේ! (New PIN and confirmation do not match)' });
+      return;
+    }
+    if (newPinValue.length < 4) {
+      setPinNotice({ type: 'error', message: 'නව PIN අංකය අවම වශයෙන් ඉලක්කම් 4ක් විය යුතුය (New PIN must be at least 4 digits).' });
+      return;
+    }
+
+    try {
+      setPinUpdating(true);
+      setPinNotice(null);
+      const res = await fetch('/api/auth/change-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_role: targetPinRole,
+          admin_pin: adminCurrentPin,
+          new_pin: newPinValue
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        soundManager.playOrderPlaced();
+        setPinNotice({ type: 'success', message: data.message });
+        setAdminCurrentPin('');
+        setNewPinValue('');
+        setConfirmPinValue('');
+        setTimeout(() => setPinNotice(null), 5000);
+      } else {
+        setPinNotice({ type: 'error', message: data.error || 'PIN අංකය වෙනස් කිරීම අසාර්ථකයි' });
+      }
+    } catch (err) {
+      setPinNotice({ type: 'error', message: 'සම්බන්ධතාවය අසාර්ථකයි (Network error)' });
+    } finally {
+      setPinUpdating(false);
     }
   };
 
@@ -537,110 +594,235 @@ export default function SetupPage() {
           </div>
         </div>
 
-        {/* 3. Partner Names & Percentage Shares (5 Columns) */}
-        <div className="lg:col-span-5 bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <div>
-                <h3 className="font-bold text-base text-white flex items-center gap-2">
-                  <Users className="w-5 h-5 text-emerald-400" />
-                  Partners & Equity Shares
-                </h3>
-                <p className="text-xs text-slate-400">Total percentages must equal exactly 100%</p>
-              </div>
-
-              {/* Total Percentage Indicator */}
-              <div className={`px-3 py-1 rounded-xl text-xs font-mono font-bold border flex items-center gap-1.5 ${
-                isPercentageValid 
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
-                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
-              }`}>
-                <span>Total:</span>
-                <span>{roundedPartnerTotal}%</span>
-              </div>
-            </div>
-
-            {partnerNotice && (
-              <div className={`p-3 rounded-2xl text-xs mb-4 flex items-center gap-2 ${
-                partnerNotice.type === 'success' 
-                  ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300' 
-                  : 'bg-rose-950/60 border border-rose-600/40 text-rose-300'
-              }`}>
-                {partnerNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
-                <span>{partnerNotice.message}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSavePartners} className="flex flex-col gap-4">
-              {partnerEdits.map((partner, idx) => (
-                <div key={partner.id} className="p-4 rounded-2xl bg-slate-850 border border-slate-800 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Partner #{partner.id}
-                    </span>
-                    <span className="text-xs font-mono font-semibold text-emerald-400">
-                      Share: {partner.share_percentage}%
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 items-center">
-                    <div className="col-span-2">
-                      <label className="text-[10px] text-slate-400 block mb-0.5">Partner Name</label>
-                      <input
-                        type="text"
-                        value={partner.name}
-                        onChange={(e) => handlePartnerChange(idx, 'name', e.target.value)}
-                        required
-                        className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-0.5">Share %</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="100"
-                        value={partner.share_percentage}
-                        onChange={(e) => handlePartnerChange(idx, 'share_percentage', e.target.value)}
-                        required
-                        className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono font-bold text-right"
-                      />
-                    </div>
-                  </div>
+        {/* 3. Right Column: Partner Equity & PIN Security (5 Columns) */}
+        <div className="lg:col-span-5 flex flex-col gap-6">
+          
+          {/* A. Partner Names & Percentage Shares */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                <div>
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    <Users className="w-5 h-5 text-emerald-400" />
+                    Partners & Equity Shares
+                  </h3>
+                  <p className="text-xs text-slate-400">Total percentages must equal exactly 100%</p>
                 </div>
-              ))}
 
-              {!isPercentageValid && (
-                <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-800/40 text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>
-                    Validation Warning: Total equity is {roundedPartnerTotal}%. Please adjust shares to equal exactly 100%.
-                  </span>
+                {/* Total Percentage Indicator */}
+                <div className={`px-3 py-1 rounded-xl text-xs font-mono font-bold border flex items-center gap-1.5 ${
+                  isPercentageValid 
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                    : 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                }`}>
+                  <span>Total:</span>
+                  <span>{roundedPartnerTotal}%</span>
+                </div>
+              </div>
+
+              {partnerNotice && (
+                <div className={`p-3 rounded-2xl text-xs mb-4 flex items-center gap-2 ${
+                  partnerNotice.type === 'success' 
+                    ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300' 
+                    : 'bg-rose-950/60 border border-rose-600/40 text-rose-300'
+                }`}>
+                  {partnerNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                  <span>{partnerNotice.message}</span>
                 </div>
               )}
 
+              <form onSubmit={handleSavePartners} className="flex flex-col gap-4">
+                {partnerEdits.map((partner, idx) => (
+                  <div key={partner.id} className="p-4 rounded-2xl bg-slate-850 border border-slate-800 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                        Partner #{partner.id}
+                      </span>
+                      <span className="text-xs font-mono font-semibold text-emerald-400">
+                        Share: {partner.share_percentage}%
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 items-center">
+                      <div className="col-span-2">
+                        <label className="text-[10px] text-slate-400 block mb-0.5">Partner Name</label>
+                        <input
+                          type="text"
+                          value={partner.name}
+                          onChange={(e) => handlePartnerChange(idx, 'name', e.target.value)}
+                          required
+                          className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-0.5">Share %</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          value={partner.share_percentage}
+                          onChange={(e) => handlePartnerChange(idx, 'share_percentage', e.target.value)}
+                          required
+                          className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono font-bold text-right"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {!isPercentageValid && (
+                  <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-800/40 text-rose-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>
+                      Validation Warning: Total equity is {roundedPartnerTotal}%. Please adjust shares to equal exactly 100%.
+                    </span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={savingPartners || !isPercentageValid}
+                  className="py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs sm:text-sm transition-all shadow-lg shadow-emerald-950/60 active:scale-98 disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingPartners ? 'Saving...' : 'Save Partner Equity Configuration'}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* B. PIN Management Card (Admin controls Cashier and Admin PINs) */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-teal-400" />
+                  ආරක්ෂාව සහ PIN අංක වෙනස් කිරීම
+                </h3>
+                <p className="text-xs text-slate-400">
+                  කැෂියර් හෝ Admin PIN අංක වෙනස් කිරීම (Security Passwords)
+                </p>
+              </div>
+              <span className="text-[10px] px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/30 font-bold uppercase tracking-wider">
+                Admin Only
+              </span>
+            </div>
+
+            {pinNotice && (
+              <div className={`p-3 rounded-2xl text-xs mb-4 flex items-center gap-2 ${
+                pinNotice.type === 'success' 
+                  ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300' 
+                  : 'bg-rose-950/60 border border-rose-600/40 text-rose-300'
+              }`}>
+                {pinNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                <span>{pinNotice.message}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdatePin} className="flex flex-col gap-4">
+              {/* Target Role Selector */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  වෙනස් කළ යුතු PIN අංකය (Select Role to Change)
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-850 rounded-2xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => { setTargetPinRole('cashier'); setPinNotice(null); }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      targetPinRole === 'cashier'
+                        ? 'bg-emerald-600 text-white shadow-md font-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>කැෂියර් (Cashier PIN)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setTargetPinRole('admin'); setPinNotice(null); }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      targetPinRole === 'admin'
+                        ? 'bg-teal-600 text-white shadow-md font-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>පරිපාලක (Admin PIN)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Admin PIN */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  වත්මන් Admin PIN අංකය (Current Admin PIN - Default: 9999)
+                </label>
+                <input
+                  type="password"
+                  maxLength="8"
+                  value={adminCurrentPin}
+                  onChange={(e) => setAdminCurrentPin(e.target.value)}
+                  placeholder="වර්තමාන Admin PIN ඇතුළත් කරන්න"
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono tracking-widest font-bold"
+                />
+              </div>
+
+              {/* New PIN & Confirm PIN */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                    නව PIN අංකය (New PIN)
+                  </label>
+                  <input
+                    type="password"
+                    maxLength="8"
+                    value={newPinValue}
+                    onChange={(e) => setNewPinValue(e.target.value)}
+                    placeholder="ඉලක්කම් 4ක්"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono tracking-widest font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                    තහවුරු කරන්න (Confirm)
+                  </label>
+                  <input
+                    type="password"
+                    maxLength="8"
+                    value={confirmPinValue}
+                    onChange={(e) => setConfirmPinValue(e.target.value)}
+                    placeholder="නැවත ඇතුළත් කරන්න"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono tracking-widest font-bold"
+                  />
+                </div>
+              </div>
+
               <button
                 type="submit"
-                disabled={savingPartners || !isPercentageValid}
-                className="py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs sm:text-sm transition-all shadow-lg shadow-emerald-950/60 active:scale-98 disabled:opacity-40 flex items-center justify-center gap-2"
+                disabled={pinUpdating}
+                className="py-3.5 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-xs sm:text-sm transition-all shadow-lg shadow-teal-950/60 active:scale-98 disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer mt-1"
               >
-                <Save className="w-4 h-4" />
-                {savingPartners ? 'Saving...' : 'Save Partner Equity Configuration'}
+                <KeyRound className="w-4 h-4" />
+                <span>{pinUpdating ? 'සුරකිමින්...' : 'PIN අංකය යාවත්කාලීන කරන්න (Update PIN)'}</span>
               </button>
             </form>
           </div>
 
-          {/* Sound & Hardware Test Tool */}
-          <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
-            <span className="text-xs text-slate-400">Audio Hardware Test</span>
+          {/* C. Sound & Hardware Test Tool */}
+          <div className="p-4 rounded-3xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between">
+            <span className="text-xs text-slate-400 font-medium">ශබ්ද නාද පරීක්ෂාව (Audio Hardware Test)</span>
             <button
               onClick={() => soundManager.playKitchenChime()}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold flex items-center gap-1.5 transition-all"
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-amber-400 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <Volume2 className="w-3.5 h-3.5" />
-              Test Kitchen Chime
+              <Volume2 className="w-4 h-4" />
+              <span>Test Kitchen Chime</span>
             </button>
           </div>
 
